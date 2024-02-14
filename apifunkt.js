@@ -18,7 +18,7 @@ async function readTemperatureFromOPCUA() {
 }
 
 app.get('/temperature', async (req, res) => {
-    try {
+    try {   
         const temperature = await readTemperatureFromOPCUA();
         res.json({ temperature });
     } catch (error) {
