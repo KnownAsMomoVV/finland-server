@@ -1,0 +1,5 @@
+{
+    "temperature": 350,
+    "runningTime": 0,
+    "jobList": ["Job1", "Job2", "Job3", "Job4"]
+}
