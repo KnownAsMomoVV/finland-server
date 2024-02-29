@@ -27,11 +27,11 @@ async function readVariable(session, nodeId) {
             return dataValue.value.value;
         } else {
             console.error(`Failed to read ${nodeId}, Status Code: ${dataValue.statusCode.toString()}`);
-            return null; // or handle differently based on your application's needs
+            return null;
         }
     } catch (error) {
         console.error(`Error reading ${nodeId}:`, error.message);
-        return null; // Adjust based on how you want to handle read errors
+        return null;
     }
 }
 
@@ -47,9 +47,15 @@ async function main() {
     const session = await client.createSession();
     console.log("Session created");
 
+    let previousAverage = null;
+    let intervalDuration = 10000; // Initial interval duration
+
     const readAndLogVariablesForAllMachines = async () => {
+        let totalConsumption = 0;
+        let count = 0;
+
         for (let i = 0; i < 10; i++) {
-            const machineId = String.fromCharCode('A'.charCodeAt(0) + i); // Adjusted to match server-side machine ID generation
+            const machineId = String.fromCharCode('A'.charCodeAt(0) + i);
             try {
                 const consumptionNodeId = `ns=1;s=Machine${machineId}_Consumption`;
                 const timestampNodeId = `ns=1;s=Machine${machineId}_Timestamp`;
@@ -59,29 +65,46 @@ async function main() {
 
                 const consumption = await readVariable(session, consumptionNodeId);
                 const timestamp = await readVariable(session, timestampNodeId);
-                console.log(`Machine${machineId} - Consumption: ${consumption}, Timestamp: ${timestamp}`);
 
-                // Debug log before insertion
-                console.log(`Inserting into database: Machine${machineId} - Consumption: ${consumption}, Timestamp: ${timestamp}`);
+                if (consumption !== null && timestamp !== null) {
+                    console.log(`Machine${machineId} - Consumption: ${consumption}, Timestamp: ${timestamp}`);
+                    totalConsumption += consumption;
+                    count++;
 
-                // Write to PostgreSQL
-                const insertQuery = 'INSERT INTO roboteconsumption(machineid, consumption, timestamp) VALUES($1, $2, $3)';
-                await db.query(insertQuery, [machineId, consumption, timestamp]);
+                    // Inserting into database
+                    const insertQuery = 'INSERT INTO roboteconsumption(machineid, consumption, timestamp) VALUES($1, $2, $3)';
+                    await db.query(insertQuery, [machineId, consumption, timestamp]);
+                    console.log(`Inserted into database: Machine${machineId} - Consumption: ${consumption}, Timestamp: ${timestamp}`);
+                }
             } catch (err) {
                 console.error(`Read failed for Machine${machineId}:`, err);
             }
         }
+
+        if (count > 0) {
+            const averageConsumption = totalConsumption / count;
+            console.log(`Average Consumption: ${averageConsumption}`);
+
+            if (previousAverage !== null && averageConsumption < previousAverage) {
+                console.log("Shutting down, increasing interval to 15 seconds");
+                intervalDuration = 15000; // Adjust interval to 15 seconds
+                clearInterval(intervalHandle);
+                intervalHandle = setInterval(readAndLogVariablesForAllMachines, intervalDuration);
+            }
+
+            previousAverage = averageConsumption;
+        }
     };
 
-    // Set an interval to read the variables every 10 seconds
-    const intervalHandle = setInterval(readAndLogVariablesForAllMachines, 10000);
+    // Set an initial interval to read the variables
+    let intervalHandle = setInterval(readAndLogVariablesForAllMachines, intervalDuration);
 
     process.on('SIGINT', async () => {
         clearInterval(intervalHandle);
         await session.close();
         await client.disconnect();
         console.log("Interrupted by user, disconnected from server");
-        await db.end(); // Close the PostgreSQL connection
+        await db.end();
         process.exit(0);
     });
 }
